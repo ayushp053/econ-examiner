@@ -1,0 +1,2 @@
+
+""" + CANVAS TEXT PLACEHOLDER + """
