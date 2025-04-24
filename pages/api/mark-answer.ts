@@ -1,7 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { OpenAI } from 'openai';
 import fs from 'fs';
-import path from 'path';
 import formidable from 'formidable';
 
 export const config = {
@@ -30,12 +29,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { fields, files } = await parseForm(req);
     const answer = fields.answer?.toString() || '';
 
-    // --- Marking the written answer ---
-    const textPrompt = `
+    const prompt = `
 You are an AQA A-Level Economics examiner. Mark the following student answer using AQA standards.
-Split it into clear sentences and return:
+Split the answer into sentences. For each sentence, return:
 - sentence
-- highlight: "full", "partial", "none"
+- highlight: "full", "partial", or "none"
 - comment
 
 Respond ONLY with a valid JSON array. No introduction or explanation.
@@ -46,23 +44,22 @@ ${answer}
 
     const textResponse = await openai.chat.completions.create({
       model: 'gpt-4-turbo',
-      messages: [{ role: 'user', content: textPrompt }],
+      messages: [{ role: 'user', content: prompt }],
       temperature: 0.4,
     });
 
-    // Safe JSON extraction
-    const rawText = textResponse.choices[0].message.content || '';
-    const startIdx = rawText.indexOf('[');
-    const endIdx = rawText.lastIndexOf(']') + 1;
-    let feedback = [];
+    const raw = textResponse.choices[0].message.content || '';
+    const start = raw.indexOf('[');
+    const end = raw.lastIndexOf(']') + 1;
 
+    let feedback = [];
     try {
-      feedback = JSON.parse(rawText.slice(startIdx, endIdx));
+      feedback = JSON.parse(raw.slice(start, end));
     } catch (err) {
-      console.error('JSON parse error (text):', err);
+      console.error('JSON parse error:', err);
     }
 
-    // --- Diagram feedback (optional) ---
+    // Diagram feedback (optional)
     let diagramFeedback = null;
     const diagramFile = files.diagram?.[0];
 
@@ -71,14 +68,14 @@ ${answer}
       const base64Image = imageBuffer.toString('base64');
 
       const visionPrompt = `
-You are an AQA A-Level Economics examiner.
+You are an AQA Economics examiner.
 
-Analyze the attached economics diagram. Identify:
-- The type of diagram (e.g. AD/AS, PPC, cost curves)
-- If it is correctly labelled and annotated
-- If it shows a valid economic point
+Analyse the attached diagram. Identify:
+- The diagram type (AD/AS, PPC, etc.)
+- Label accuracy
+- If it supports a valid economic point
 
-Give examiner-style feedback. Max 4 marks. Keep the feedback concise.
+Return concise feedback (max 4 marks).
       `.trim();
 
       const visionResponse = await openai.chat.completions.create({
@@ -104,7 +101,7 @@ Give examiner-style feedback. Max 4 marks. Keep the feedback concise.
 
     res.status(200).json({ feedback, diagramFeedback });
   } catch (err: any) {
-    console.error('Error during AI marking:', err);
+    console.error('API Error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 }
